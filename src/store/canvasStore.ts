@@ -89,9 +89,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         if (el.id !== elementId) return el;
         const currentModified = el.manuallyModifiedColors || [];
         if (currentModified.includes(colorField)) return el;
+        const newColorRoles = { ...(el.colorRoles || {}) };
+        delete newColorRoles[colorField];
         return {
           ...el,
           manuallyModifiedColors: [...currentModified, colorField],
+          colorRoles: Object.keys(newColorRoles).length > 0 ? newColorRoles : undefined,
         };
       }),
     }));

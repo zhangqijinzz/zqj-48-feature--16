@@ -116,6 +116,72 @@ export function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function isDarkTheme(theme: Theme): boolean {
+  const [, , l] = hexToHsl(theme.primaryColor);
+  return l < 40;
+}
+
+function deriveStickyColors(theme: Theme): Array<{ bg: string; text: string }> {
+  if (isDarkTheme(theme)) {
+    return [
+      { bg: theme.decorativeColors[2] || '#3B3B5C', text: theme.backgroundColor },
+      { bg: theme.decorativeColors[3] || '#2D2D4A', text: theme.textColor },
+      { bg: theme.decorativeColors[1] || '#4A4A6A', text: theme.backgroundColor },
+      { bg: theme.decorativeColors[4] || '#5A3A5A', text: theme.backgroundColor },
+    ];
+  }
+
+  return [
+    { bg: adjustLightness(theme.decorativeColors[0] || theme.primaryColor, 50), text: adjustLightness(theme.textColor, -10) },
+    { bg: adjustLightness(theme.decorativeColors[1] || theme.secondaryColor, 50), text: adjustLightness(theme.textColor, -10) },
+    { bg: adjustLightness(theme.decorativeColors[2] || theme.accentColor, 50), text: adjustLightness(theme.textColor, -10) },
+    { bg: adjustLightness(theme.decorativeColors[3] || theme.primaryColor, 50), text: adjustLightness(theme.textColor, -10) },
+  ];
+}
+
+export function resolveColorRole(role: string, theme: Theme): string | null {
+  if (!role) return null;
+
+  switch (role) {
+    case 'primaryColor': return theme.primaryColor;
+    case 'secondaryColor': return theme.secondaryColor;
+    case 'accentColor': return theme.accentColor;
+    case 'backgroundColor': return theme.backgroundColor;
+    case 'textColor': return theme.textColor;
+    case 'contrast.white': return '#FFFFFF';
+    case 'contrast.black': return '#111827';
+    case 'neutral.white': return isDarkTheme(theme) ? '#1E293B' : '#FFFFFF';
+    case 'neutral.light': return isDarkTheme(theme) ? '#111827' : '#F9FAFB';
+    case 'neutral.placeholder': return isDarkTheme(theme) ? '#6B7280' : '#9CA3AF';
+    case 'neutral.border': return isDarkTheme(theme) ? '#374151' : '#E5E7EB';
+    case 'neutral.border2': return isDarkTheme(theme) ? '#4B5563' : '#D1D5DB';
+    case 'neutral.dark': return isDarkTheme(theme) ? theme.primaryColor : '#111827';
+    default: break;
+  }
+
+  const decorativeMatch = role.match(/^decorative\.(\d+)$/);
+  if (decorativeMatch) {
+    const idx = parseInt(decorativeMatch[1], 10);
+    return theme.decorativeColors[idx] || null;
+  }
+
+  const stickyBgMatch = role.match(/^sticky\.bg\.(\d+)$/);
+  if (stickyBgMatch) {
+    const idx = parseInt(stickyBgMatch[1], 10);
+    const colors = deriveStickyColors(theme);
+    return colors[idx]?.bg || null;
+  }
+
+  const stickyTextMatch = role.match(/^sticky\.text\.(\d+)$/);
+  if (stickyTextMatch) {
+    const idx = parseInt(stickyTextMatch[1], 10);
+    const colors = deriveStickyColors(theme);
+    return colors[idx]?.text || null;
+  }
+
+  return null;
+}
+
 export function getThemeColorMap(theme: Theme): Map<string, string[]> {
   const colorMap = new Map<string, string[]>();
   const addMapping = (colorName: string, colors: string[]) => {
@@ -136,6 +202,17 @@ export function getThemeColorMap(theme: Theme): Map<string, string[]> {
   addMapping('backgroundColor', [theme.backgroundColor]);
   addMapping('textColor', [theme.textColor]);
   addMapping('decorativeColors', theme.decorativeColors);
+
+  const stickyColors = deriveStickyColors(theme);
+  stickyColors.forEach((sc, i) => {
+    addMapping(`sticky.bg.${i}`, [sc.bg]);
+    addMapping(`sticky.text.${i}`, [sc.text]);
+  });
+
+  addMapping('neutral.white', [isDarkTheme(theme) ? '#1E293B' : '#FFFFFF']);
+  addMapping('neutral.placeholder', [isDarkTheme(theme) ? '#6B7280' : '#9CA3AF']);
+  addMapping('neutral.border', [isDarkTheme(theme) ? '#374151' : '#E5E7EB']);
+  addMapping('neutral.border2', [isDarkTheme(theme) ? '#4B5563' : '#D1D5DB']);
 
   return colorMap;
 }
@@ -176,22 +253,23 @@ function colorDistance(hex1: string, hex2: string): number {
 }
 
 export function getColorFromNewTheme(category: string, newTheme: Theme): string | null {
-  switch (category) {
-    case 'primaryColor':
-      return newTheme.primaryColor;
-    case 'secondaryColor':
-      return newTheme.secondaryColor;
-    case 'accentColor':
-      return newTheme.accentColor;
-    case 'backgroundColor':
-      return newTheme.backgroundColor;
-    case 'textColor':
-      return newTheme.textColor;
-    case 'decorativeColors':
-      return newTheme.decorativeColors[0];
-    default:
-      return null;
+  const directMapping: Record<string, string | undefined> = {
+    primaryColor: newTheme.primaryColor,
+    secondaryColor: newTheme.secondaryColor,
+    accentColor: newTheme.accentColor,
+    backgroundColor: newTheme.backgroundColor,
+    textColor: newTheme.textColor,
+  };
+
+  if (category in directMapping) {
+    return directMapping[category] || null;
   }
+
+  if (category === 'decorativeColors') {
+    return newTheme.decorativeColors[0];
+  }
+
+  return resolveColorRole(category, newTheme);
 }
 
 export function getDecorativeColorMapping(
@@ -235,7 +313,7 @@ export function adaptElementColorsToNewTheme(
 ): CanvasElement {
   const newElement = { ...element };
   const manuallyModified = new Set(element.manuallyModifiedColors || []);
-  const oldColorMap = getThemeColorMap(oldTheme);
+  const colorRoles = element.colorRoles || {};
 
   const colorFields: ('backgroundColor' | 'textColor' | 'borderColor')[] = [
     'backgroundColor',
@@ -248,6 +326,15 @@ export function adaptElementColorsToNewTheme(
     const oldColor = element[field];
     if (!oldColor) return;
 
+    if (colorRoles[field]) {
+      const resolvedColor = resolveColorRole(colorRoles[field]!, newTheme);
+      if (resolvedColor) {
+        (newElement as any)[field] = resolvedColor;
+      }
+      return;
+    }
+
+    const oldColorMap = getThemeColorMap(oldTheme);
     const category = findClosestThemeColor(oldColor, oldColorMap);
     if (category) {
       if (category === 'decorativeColors') {
@@ -267,6 +354,10 @@ export function adaptElementColorsToNewTheme(
       }
     }
   });
+
+  if (colorRoles) {
+    newElement.colorRoles = { ...colorRoles };
+  }
 
   return newElement;
 }

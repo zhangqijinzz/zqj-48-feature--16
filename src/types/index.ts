@@ -22,6 +22,7 @@ export interface CanvasElement {
   pattern?: string;
   emoji?: string;
   manuallyModifiedColors?: ('backgroundColor' | 'textColor' | 'borderColor')[];
+  colorRoles?: Partial<Record<'backgroundColor' | 'textColor' | 'borderColor', string>>;
 }
 
 export interface Theme {
