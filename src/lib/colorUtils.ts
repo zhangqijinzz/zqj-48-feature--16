@@ -121,7 +121,7 @@ function isDarkTheme(theme: Theme): boolean {
   return l < 40;
 }
 
-function deriveStickyColors(theme: Theme): Array<{ bg: string; text: string }> {
+export function deriveStickyColors(theme: Theme): Array<{ bg: string; text: string }> {
   if (isDarkTheme(theme)) {
     return [
       { bg: theme.decorativeColors[2] || '#3B3B5C', text: theme.backgroundColor },
