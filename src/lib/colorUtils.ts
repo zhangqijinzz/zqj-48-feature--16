@@ -1,4 +1,4 @@
-import type { ColorPalette } from '@/types';
+import type { ColorPalette, Theme, CanvasElement, ThemeId } from '@/types';
 
 function hexToHsl(hex: string): [number, number, number] {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -114,4 +114,159 @@ export function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+export function getThemeColorMap(theme: Theme): Map<string, string[]> {
+  const colorMap = new Map<string, string[]>();
+  const addMapping = (colorName: string, colors: string[]) => {
+    colors.forEach(c => {
+      const normalized = c.toLowerCase();
+      if (!colorMap.has(normalized)) {
+        colorMap.set(normalized, []);
+      }
+      if (!colorMap.get(normalized)!.includes(colorName)) {
+        colorMap.get(normalized)!.push(colorName);
+      }
+    });
+  };
+
+  addMapping('primaryColor', [theme.primaryColor]);
+  addMapping('secondaryColor', [theme.secondaryColor]);
+  addMapping('accentColor', [theme.accentColor]);
+  addMapping('backgroundColor', [theme.backgroundColor]);
+  addMapping('textColor', [theme.textColor]);
+  addMapping('decorativeColors', theme.decorativeColors);
+
+  return colorMap;
+}
+
+export function findClosestThemeColor(
+  color: string,
+  oldThemeColorMap: Map<string, string[]>
+): string | null {
+  if (!color) return null;
+  const normalized = color.toLowerCase();
+
+  if (oldThemeColorMap.has(normalized)) {
+    return oldThemeColorMap.get(normalized)![0];
+  }
+
+  let closestCategory: string | null = null;
+  let minDistance = Infinity;
+
+  oldThemeColorMap.forEach((categories, themeColor) => {
+    const dist = colorDistance(normalized, themeColor);
+    if (dist < minDistance && dist < 50) {
+      minDistance = dist;
+      closestCategory = categories[0];
+    }
+  });
+
+  return closestCategory;
+}
+
+function colorDistance(hex1: string, hex2: string): number {
+  const r1 = parseInt(hex1.slice(1, 3), 16);
+  const g1 = parseInt(hex1.slice(3, 5), 16);
+  const b1 = parseInt(hex1.slice(5, 7), 16);
+  const r2 = parseInt(hex2.slice(1, 3), 16);
+  const g2 = parseInt(hex2.slice(3, 5), 16);
+  const b2 = parseInt(hex2.slice(5, 7), 16);
+  return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+}
+
+export function getColorFromNewTheme(category: string, newTheme: Theme): string | null {
+  switch (category) {
+    case 'primaryColor':
+      return newTheme.primaryColor;
+    case 'secondaryColor':
+      return newTheme.secondaryColor;
+    case 'accentColor':
+      return newTheme.accentColor;
+    case 'backgroundColor':
+      return newTheme.backgroundColor;
+    case 'textColor':
+      return newTheme.textColor;
+    case 'decorativeColors':
+      return newTheme.decorativeColors[0];
+    default:
+      return null;
+  }
+}
+
+export function getDecorativeColorMapping(
+  oldColor: string,
+  oldDecorativeColors: string[],
+  newDecorativeColors: string[]
+): string | null {
+  const normalized = oldColor.toLowerCase();
+  const idx = oldDecorativeColors.findIndex(c => c.toLowerCase() === normalized);
+  if (idx !== -1 && idx < newDecorativeColors.length) {
+    return newDecorativeColors[idx];
+  }
+
+  let closestIdx = -1;
+  let minDist = Infinity;
+  oldDecorativeColors.forEach((c, i) => {
+    const dist = colorDistance(normalized, c.toLowerCase());
+    if (dist < minDist) {
+      minDist = dist;
+      closestIdx = i;
+    }
+  });
+
+  if (closestIdx !== -1 && minDist < 50 && closestIdx < newDecorativeColors.length) {
+    return newDecorativeColors[closestIdx];
+  }
+
+  return null;
+}
+
+export interface ThemeColorSnapshot {
+  elements: CanvasElement[];
+  themeId: ThemeId;
+  canvasBackground: string;
+}
+
+export function adaptElementColorsToNewTheme(
+  element: CanvasElement,
+  oldTheme: Theme,
+  newTheme: Theme
+): CanvasElement {
+  const newElement = { ...element };
+  const manuallyModified = new Set(element.manuallyModifiedColors || []);
+  const oldColorMap = getThemeColorMap(oldTheme);
+
+  const colorFields: ('backgroundColor' | 'textColor' | 'borderColor')[] = [
+    'backgroundColor',
+    'textColor',
+    'borderColor',
+  ];
+
+  colorFields.forEach(field => {
+    if (manuallyModified.has(field)) return;
+    const oldColor = element[field];
+    if (!oldColor) return;
+
+    const category = findClosestThemeColor(oldColor, oldColorMap);
+    if (category) {
+      if (category === 'decorativeColors') {
+        const mappedColor = getDecorativeColorMapping(
+          oldColor,
+          oldTheme.decorativeColors,
+          newTheme.decorativeColors
+        );
+        if (mappedColor) {
+          (newElement as any)[field] = mappedColor;
+        }
+      } else {
+        const mappedColor = getColorFromNewTheme(category, newTheme);
+        if (mappedColor) {
+          (newElement as any)[field] = mappedColor;
+        }
+      }
+    }
+  });
+
+  return newElement;
 }

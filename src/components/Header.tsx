@@ -12,7 +12,7 @@ const sizePresets = [
 ];
 
 export default function Header() {
-  const { canvasWidth, canvasHeight, setCanvasSize, clearCanvas, currentTheme } = useCanvasStore();
+  const { canvasWidth, canvasHeight, setCanvasSize, clearCanvas, currentTheme, undoThemeChange, canUndoThemeChange } = useCanvasStore();
   const [showSizeModal, setShowSizeModal] = useState(false);
   const [showClearModal, setShowClearModal] = useState(false);
 
@@ -34,14 +34,19 @@ export default function Header() {
         <div className="flex items-center gap-1">
           <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 bg-gray-50 p-1">
             <button
-              className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-white hover:text-gray-700"
-              title="撤销"
-              disabled
+              onClick={undoThemeChange}
+              disabled={!canUndoThemeChange}
+              className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                canUndoThemeChange
+                  ? 'text-blue-600 hover:bg-white hover:text-blue-700'
+                  : 'text-gray-400 cursor-not-allowed'
+              }`}
+              title={canUndoThemeChange ? '撤销上次主题切换' : '暂无可撤销操作'}
             >
               <Undo2 className="h-4 w-4" />
             </button>
             <button
-              className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-white hover:text-gray-700"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-gray-400 cursor-not-allowed"
               title="重做"
               disabled
             >

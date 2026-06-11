@@ -21,6 +21,7 @@ export interface CanvasElement {
   imageUrl?: string;
   pattern?: string;
   emoji?: string;
+  manuallyModifiedColors?: ('backgroundColor' | 'textColor' | 'borderColor')[];
 }
 
 export interface Theme {

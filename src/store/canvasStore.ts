@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import type { CanvasElement, Theme, ColorPalette, ThemeId } from '@/types';
 import { themes } from '@/data/themes';
-import { generateColorPalette } from '@/lib/colorUtils';
+import {
+  generateColorPalette,
+  adaptElementColorsToNewTheme,
+  type ThemeColorSnapshot,
+} from '@/lib/colorUtils';
 
 interface CanvasState {
   elements: CanvasElement[];
@@ -13,6 +17,8 @@ interface CanvasState {
   canvasWidth: number;
   canvasHeight: number;
   nextZIndex: number;
+  themeHistory: ThemeColorSnapshot[];
+  canUndoThemeChange: boolean;
 
   addElement: (element: Omit<CanvasElement, 'id' | 'zIndex'>) => void;
   updateElement: (id: string, updates: Partial<CanvasElement>) => void;
@@ -26,6 +32,13 @@ interface CanvasState {
   clearCanvas: () => void;
 
   setTheme: (themeId: ThemeId) => void;
+  setThemeWithAdapt: (themeId: ThemeId, adaptExisting: boolean) => void;
+  undoThemeChange: () => void;
+  clearThemeHistory: () => void;
+  markColorManuallyModified: (
+    elementId: string,
+    colorField: 'backgroundColor' | 'textColor' | 'borderColor'
+  ) => void;
   setPrimaryColor: (color: string) => void;
   setCanvasBackground: (color: string) => void;
   setCanvasSize: (width: number, height: number) => void;
@@ -44,6 +57,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   canvasWidth: 800,
   canvasHeight: 1000,
   nextZIndex: 1,
+  themeHistory: [],
+  canUndoThemeChange: false,
 
   addElement: (elementData) => {
     const state = get();
@@ -51,6 +66,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       ...elementData,
       id: generateId(),
       zIndex: state.nextZIndex,
+      manuallyModifiedColors: [],
     };
     set({
       elements: [...state.elements, newElement],
@@ -64,6 +80,20 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       elements: state.elements.map((el) =>
         el.id === id ? { ...el, ...updates } : el
       ),
+    }));
+  },
+
+  markColorManuallyModified: (elementId, colorField) => {
+    set((state) => ({
+      elements: state.elements.map((el) => {
+        if (el.id !== elementId) return el;
+        const currentModified = el.manuallyModifiedColors || [];
+        if (currentModified.includes(colorField)) return el;
+        return {
+          ...el,
+          manuallyModifiedColors: [...currentModified, colorField],
+        };
+      }),
     }));
   },
 
@@ -125,6 +155,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         x: element.x + 20,
         y: element.y + 20,
         zIndex: state.nextZIndex,
+        manuallyModifiedColors: [...(element.manuallyModifiedColors || [])],
       };
       set({
         elements: [...state.elements, newElement],
@@ -135,17 +166,82 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   },
 
   clearCanvas: () => {
-    set({ elements: [], selectedElementId: null, nextZIndex: 1 });
+    set({ elements: [], selectedElementId: null, nextZIndex: 1, themeHistory: [], canUndoThemeChange: false });
   },
 
   setTheme: (themeId) => {
+    const state = get();
+    if (state.currentThemeId === themeId) return;
+
+    const snapshot: ThemeColorSnapshot = {
+      elements: state.elements.map((el) => ({ ...el })),
+      themeId: state.currentThemeId,
+      canvasBackground: state.canvasBackground,
+    };
+
     const theme = themes[themeId];
     set({
       currentTheme: theme,
       currentThemeId: themeId,
       colorPalette: generateColorPalette(theme.primaryColor),
       canvasBackground: theme.backgroundColor,
+      themeHistory: [...state.themeHistory, snapshot],
+      canUndoThemeChange: true,
     });
+  },
+
+  setThemeWithAdapt: (themeId, adaptExisting) => {
+    const state = get();
+    if (state.currentThemeId === themeId) return;
+
+    const snapshot: ThemeColorSnapshot = {
+      elements: state.elements.map((el) => ({ ...el })),
+      themeId: state.currentThemeId,
+      canvasBackground: state.canvasBackground,
+    };
+
+    const oldTheme = state.currentTheme;
+    const newTheme = themes[themeId];
+
+    let newElements = state.elements;
+    if (adaptExisting) {
+      newElements = state.elements.map((el) =>
+        adaptElementColorsToNewTheme(el, oldTheme, newTheme)
+      );
+    }
+
+    set({
+      elements: newElements,
+      currentTheme: newTheme,
+      currentThemeId: themeId,
+      colorPalette: generateColorPalette(newTheme.primaryColor),
+      canvasBackground: newTheme.backgroundColor,
+      themeHistory: [...state.themeHistory, snapshot],
+      canUndoThemeChange: true,
+    });
+  },
+
+  undoThemeChange: () => {
+    const state = get();
+    if (state.themeHistory.length === 0) return;
+
+    const lastSnapshot = state.themeHistory[state.themeHistory.length - 1];
+    const newHistory = state.themeHistory.slice(0, -1);
+    const theme = themes[lastSnapshot.themeId];
+
+    set({
+      elements: lastSnapshot.elements.map((el) => ({ ...el })),
+      currentTheme: theme,
+      currentThemeId: lastSnapshot.themeId,
+      colorPalette: generateColorPalette(theme.primaryColor),
+      canvasBackground: lastSnapshot.canvasBackground,
+      themeHistory: newHistory,
+      canUndoThemeChange: newHistory.length > 0,
+    });
+  },
+
+  clearThemeHistory: () => {
+    set({ themeHistory: [], canUndoThemeChange: false });
   },
 
   setPrimaryColor: (color) => {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Palette, Layers, Settings2, Download, Trash2, Copy, ArrowUpToLine, ArrowDownToLine, RotateCw } from 'lucide-react';
+import { Palette, Layers, Settings2, Download, Trash2, Copy, ArrowUpToLine, ArrowDownToLine, RotateCw, Undo2, RefreshCw } from 'lucide-react';
 import { useCanvasStore } from '@/store/canvasStore';
 import { themeList } from '@/data/themes';
 import type { ThemeId } from '@/types';
@@ -7,15 +7,23 @@ import { hexToRgba } from '@/lib/colorUtils';
 
 type Tab = 'properties' | 'themes' | 'palette';
 
+interface PendingThemeChange {
+  themeId: ThemeId;
+  themeName: string;
+}
+
 export default function RightPanel({ onExport }: { onExport: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>('properties');
+  const [pendingThemeChange, setPendingThemeChange] = useState<PendingThemeChange | null>(null);
   const {
     selectedElementId,
     elements,
     currentThemeId,
     colorPalette,
     currentTheme,
-    setTheme,
+    setThemeWithAdapt,
+    undoThemeChange,
+    canUndoThemeChange,
     setPrimaryColor,
     updateElement,
     deleteElement,
@@ -23,6 +31,7 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
     bringToFront,
     sendToBack,
     clearCanvas,
+    markColorManuallyModified,
   } = useCanvasStore();
 
   const selectedElement = elements.find((e) => e.id === selectedElementId);
@@ -32,6 +41,30 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
     { id: 'themes' as Tab, name: '主题', icon: Layers },
     { id: 'palette' as Tab, name: '色板', icon: Palette },
   ];
+
+  const handleColorChange = (
+    field: 'backgroundColor' | 'textColor' | 'borderColor',
+    newColor: string
+  ) => {
+    if (!selectedElement) return;
+    markColorManuallyModified(selectedElement.id, field);
+    updateElement(selectedElement.id, { [field]: newColor });
+  };
+
+  const handleThemeClick = (themeId: ThemeId, themeName: string) => {
+    if (themeId === currentThemeId) return;
+    if (elements.length === 0) {
+      setThemeWithAdapt(themeId, false);
+      return;
+    }
+    setPendingThemeChange({ themeId, themeName });
+  };
+
+  const confirmThemeChange = (adaptExisting: boolean) => {
+    if (!pendingThemeChange) return;
+    setThemeWithAdapt(pendingThemeChange.themeId, adaptExisting);
+    setPendingThemeChange(null);
+  };
 
   const renderProperties = () => {
     if (!selectedElement) {
@@ -58,6 +91,8 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
         </div>
       );
     }
+
+    const modifiedColors = new Set(selectedElement.manuallyModifiedColors || []);
 
     return (
       <div className="space-y-5">
@@ -188,19 +223,26 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
 
         {(selectedElement.type === 'date' || selectedElement.type === 'sticky' || selectedElement.type === 'photo') && (
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-600">背景颜色</label>
+            <label className="mb-1.5 flex items-center gap-2 text-xs font-medium text-gray-600">
+              <span>背景颜色</span>
+              {modifiedColors.has('backgroundColor') && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-medium text-amber-700" title="手动修改，切换主题时保留">
+                  已自定义
+                </span>
+              )}
+            </label>
             <div className="flex gap-2">
               <input
                 type="color"
                 value={selectedElement.backgroundColor || '#FFFFFF'}
-                onChange={(e) => updateElement(selectedElement.id, { backgroundColor: e.target.value })}
+                onChange={(e) => handleColorChange('backgroundColor', e.target.value)}
                 className="h-10 w-12 cursor-pointer rounded-lg border border-gray-200"
               />
               <div className="flex flex-1 flex-wrap gap-1">
                 {Object.values(colorPalette).slice(0, 8).map((color) => (
                   <button
                     key={color}
-                    onClick={() => updateElement(selectedElement.id, { backgroundColor: color })}
+                    onClick={() => handleColorChange('backgroundColor', color)}
                     className="h-7 w-7 rounded-md border border-gray-200 transition-transform hover:scale-110"
                     style={{ backgroundColor: color }}
                   />
@@ -212,19 +254,26 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
 
         {(selectedElement.type === 'date' || selectedElement.type === 'sticky') && (
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-600">文字颜色</label>
+            <label className="mb-1.5 flex items-center gap-2 text-xs font-medium text-gray-600">
+              <span>文字颜色</span>
+              {modifiedColors.has('textColor') && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-medium text-amber-700" title="手动修改，切换主题时保留">
+                  已自定义
+                </span>
+              )}
+            </label>
             <div className="flex gap-2">
               <input
                 type="color"
                 value={selectedElement.textColor || '#000000'}
-                onChange={(e) => updateElement(selectedElement.id, { textColor: e.target.value })}
+                onChange={(e) => handleColorChange('textColor', e.target.value)}
                 className="h-10 w-12 cursor-pointer rounded-lg border border-gray-200"
               />
               <div className="flex flex-1 flex-wrap gap-1">
                 {['#000000', '#FFFFFF', ...Object.values(colorPalette).slice(0, 6)].map((color) => (
                   <button
                     key={color}
-                    onClick={() => updateElement(selectedElement.id, { textColor: color })}
+                    onClick={() => handleColorChange('textColor', color)}
                     className="h-7 w-7 rounded-md border border-gray-200 transition-transform hover:scale-110"
                     style={{ backgroundColor: color }}
                   />
@@ -253,13 +302,20 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
 
         {selectedElement.type === 'photo' && (
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-600">边框</label>
+            <label className="mb-1.5 flex items-center gap-2 text-xs font-medium text-gray-600">
+              <span>边框</span>
+              {modifiedColors.has('borderColor') && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-medium text-amber-700" title="手动修改，切换主题时保留">
+                  已自定义
+                </span>
+              )}
+            </label>
             <div className="space-y-2">
               <div className="flex gap-2">
                 <input
                   type="color"
                   value={selectedElement.borderColor || '#FFFFFF'}
-                  onChange={(e) => updateElement(selectedElement.id, { borderColor: e.target.value })}
+                  onChange={(e) => handleColorChange('borderColor', e.target.value)}
                   className="h-10 w-12 cursor-pointer rounded-lg border border-gray-200"
                 />
                 <div className="flex flex-1 items-center gap-2">
@@ -281,19 +337,26 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
 
         {selectedElement.type === 'tape' && (
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-gray-600">胶带颜色</label>
+            <label className="mb-1.5 flex items-center gap-2 text-xs font-medium text-gray-600">
+              <span>胶带颜色</span>
+              {modifiedColors.has('backgroundColor') && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-medium text-amber-700" title="手动修改，切换主题时保留">
+                  已自定义
+                </span>
+              )}
+            </label>
             <div className="flex gap-2">
               <input
                 type="color"
                 value={selectedElement.backgroundColor || '#FCD34D'}
-                onChange={(e) => updateElement(selectedElement.id, { backgroundColor: e.target.value })}
+                onChange={(e) => handleColorChange('backgroundColor', e.target.value)}
                 className="h-10 w-12 cursor-pointer rounded-lg border border-gray-200"
               />
               <div className="flex flex-1 flex-wrap gap-1">
                 {currentTheme.decorativeColors.map((color) => (
                   <button
                     key={color}
-                    onClick={() => updateElement(selectedElement.id, { backgroundColor: color })}
+                    onClick={() => handleColorChange('backgroundColor', color)}
                     className="h-7 w-7 rounded-md border border-gray-200 transition-transform hover:scale-110"
                     style={{ backgroundColor: color }}
                   />
@@ -325,11 +388,34 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
 
   const renderThemes = () => (
     <div className="space-y-3">
+      {canUndoThemeChange && (
+        <button
+          onClick={undoThemeChange}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
+        >
+          <Undo2 className="h-4 w-4" />
+          撤销上次主题切换
+        </button>
+      )}
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+        <h4 className="mb-1 flex items-center gap-1 text-xs font-semibold text-amber-800">
+          <RefreshCw className="h-3.5 w-3.5" />
+          主题适配说明
+        </h4>
+        <ul className="space-y-0.5 text-[11px] leading-relaxed text-amber-900/80">
+          <li>• 切换主题时可选择是否适配已有元素</li>
+          <li>• 手动修改过的颜色会保留不覆盖</li>
+          <li>• 支持一键撤销恢复到切换前状态</li>
+        </ul>
+      </div>
+
       <p className="text-xs text-gray-500">选择一个主题快速切换整体风格</p>
+
       {themeList.map((theme) => (
         <button
           key={theme.id}
-          onClick={() => setTheme(theme.id as ThemeId)}
+          onClick={() => handleThemeClick(theme.id as ThemeId, theme.name)}
           className={`w-full rounded-xl border-2 p-3 text-left transition-all ${
             currentThemeId === theme.id
               ? 'border-blue-500 bg-blue-50'
@@ -486,45 +572,126 @@ export default function RightPanel({ onExport }: { onExport: () => void }) {
   };
 
   return (
-    <div className="flex h-full w-80 flex-col overflow-hidden border-l border-gray-200 bg-white">
-      <div className="flex border-b border-gray-200">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-1 flex-col items-center gap-1 px-2 py-3 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-b-2 border-blue-500 bg-blue-50/50 text-blue-600'
-                  : 'text-gray-500 hover:bg-gray-50'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              <span className="text-[11px] font-medium">{tab.name}</span>
-            </button>
-          );
-        })}
+    <>
+      <div className="flex h-full w-80 flex-col overflow-hidden border-l border-gray-200 bg-white">
+        <div className="flex border-b border-gray-200">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex flex-1 flex-col items-center gap-1 px-2 py-3 transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-b-2 border-blue-500 bg-blue-50/50 text-blue-600'
+                    : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="text-[11px] font-medium">{tab.name}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {activeTab === 'properties' && renderProperties()}
+          {activeTab === 'themes' && renderThemes()}
+          {activeTab === 'palette' && renderPalette()}
+        </div>
+
+        <div className="border-t border-gray-200 bg-gray-50/50 p-3">
+          <button
+            onClick={onExport}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:shadow-xl hover:shadow-blue-500/30 active:scale-[0.98]"
+          >
+            <Download className="h-4 w-4" />
+            导出海报图片
+          </button>
+          <p className="mt-2 text-center text-[10px] text-gray-400">
+            快捷键: Del 删除 · Ctrl+D 复制 · Esc 取消选中
+          </p>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        {activeTab === 'properties' && renderProperties()}
-        {activeTab === 'themes' && renderThemes()}
-        {activeTab === 'palette' && renderPalette()}
-      </div>
-
-      <div className="border-t border-gray-200 bg-gray-50/50 p-3">
-        <button
-          onClick={onExport}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:shadow-xl hover:shadow-blue-500/30 active:scale-[0.98]"
+      {pendingThemeChange && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setPendingThemeChange(null)}
         >
-          <Download className="h-4 w-4" />
-          导出海报图片
-        </button>
-        <p className="mt-2 text-center text-[10px] text-gray-400">
-          快捷键: Del 删除 · Ctrl+D 复制 · Esc 取消选中
-        </p>
-      </div>
-    </div>
+          <div
+            className="w-[420px] rounded-2xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div
+                className="flex h-12 w-12 items-center justify-center rounded-xl text-white shadow-inner"
+                style={{
+                  background: `linear-gradient(135deg, ${themeList.find(t => t.id === pendingThemeChange.themeId)?.primaryColor} 0%, ${themeList.find(t => t.id === pendingThemeChange.themeId)?.secondaryColor} 50%, ${themeList.find(t => t.id === pendingThemeChange.themeId)?.accentColor} 100%)`,
+                }}
+              >
+                <Palette className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">切换主题</h3>
+                <p className="text-xs text-gray-500">即将切换到「{pendingThemeChange.themeName}」</p>
+              </div>
+            </div>
+
+            <div className="mb-5 space-y-3 rounded-xl bg-gray-50 p-4">
+              <button
+                onClick={() => confirmThemeChange(true)}
+                className="flex w-full items-start gap-3 rounded-xl border-2 border-blue-400 bg-blue-50/80 p-4 text-left transition-all hover:bg-blue-50 hover:shadow-md"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500 text-white">
+                  <RefreshCw className="h-4 w-4" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-blue-900">适配已有元素</h4>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-blue-700/80">
+                    自动将画布上已有元素的背景色、文字色和边框映射到新主题的色板对应位置
+                  </p>
+                  <div className="mt-2 rounded-lg bg-white/60 px-2.5 py-1.5 text-[10px] text-blue-600">
+                    ✅ 手动单独调整过的颜色会<strong>保留不覆盖</strong>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => confirmThemeChange(false)}
+                className="flex w-full items-start gap-3 rounded-xl border-2 border-gray-200 bg-white p-4 text-left transition-all hover:border-gray-300 hover:bg-gray-50 hover:shadow-md"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-400 text-white">
+                  <Layers className="h-4 w-4" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-gray-800">仅切换主题</h4>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
+                    保持现有元素配色不变，新创建的元素使用新主题色板
+                  </p>
+                  <div className="mt-2 rounded-lg bg-gray-100 px-2.5 py-1.5 text-[10px] text-gray-500">
+                    ⚠️ 可能导致新旧元素色彩风格割裂
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setPendingThemeChange(null)}
+                className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                取消
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
+              <Undo2 className="h-3 w-3" />
+              切换后可一键撤销恢复到当前配色状态
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
