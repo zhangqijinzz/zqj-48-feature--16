@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Calendar, StickyNote, Image, Ruler, Smile, ChevronDown, ChevronRight } from 'lucide-react';
 import { useCanvasStore } from '@/store/canvasStore';
-import { elementTemplates } from '@/data/elementTemplates';
+import { getElementTemplates } from '@/data/elementTemplates';
 import type { ElementTemplate, ElementType } from '@/types';
 
 const iconMap: Record<ElementType, React.ComponentType<{ className?: string }>> = {
@@ -92,6 +92,9 @@ export default function ElementPanel() {
     tape: true,
     sticker: true,
   });
+
+  const currentTheme = useCanvasStore((s) => s.currentTheme);
+  const elementTemplates = getElementTemplates(currentTheme);
 
   const toggleSection = (type: ElementType) => {
     setExpandedSections((prev) => ({ ...prev, [type]: !prev[type] }));

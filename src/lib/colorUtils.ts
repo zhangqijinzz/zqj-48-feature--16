@@ -1,6 +1,6 @@
 import type { ColorPalette, Theme, CanvasElement, ThemeId } from '@/types';
 
-function hexToHsl(hex: string): [number, number, number] {
+export function hexToHsl(hex: string): [number, number, number] {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
@@ -51,7 +51,7 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${Math.round(r * 255).toString(16).padStart(2, '0')}${Math.round(g * 255).toString(16).padStart(2, '0')}${Math.round(b * 255).toString(16).padStart(2, '0')}`;
 }
 
-function adjustLightness(hex: string, amount: number): string {
+export function adjustLightness(hex: string, amount: number): string {
   const [h, s, l] = hexToHsl(hex);
   return hslToHex(h, s, Math.max(0, Math.min(100, l + amount)));
 }
